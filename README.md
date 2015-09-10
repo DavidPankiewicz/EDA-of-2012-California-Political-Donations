@@ -27,7 +27,7 @@ Coupling this with demographic data could prove powerful in predicting contribut
 ------------------------------------------------------------------------------------------------
 
 ## Data
-Data was downloaded from the FEC [through this link](ftp://ftp.fec.gov/FEC/Presidential_Map/2012/P00000001/P00000001-CA.zip). (Direct download of 128 MB zip file.) Note: one must add a comma after the header  to make it readable in R.
+Data was downloaded from the FEC [through this link](ftp://ftp.fec.gov/FEC/Presidential_Map/2012/P00000001/P00000001-CA.zip).  (Direct download of 128 MB zip file.) Note: one must add a comma after the header  to make it readable in R.
 
 As given, the data is clean. I removed data on Republican primary candidates and negative donation amounts (i.e. were refunded or allocated elsewhere). This affected only a tiny number of donations (far less than 1%).  
 

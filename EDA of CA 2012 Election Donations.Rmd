@@ -1,0 +1,614 @@
+An Analysis of California Political Contributions to the 2012 Presidential Election by David Pankiewicz
+========================================================
+
+In this analysis, I looked to see what were some of the common trends in regard to amounts of donations and total money donated based on other factors in the data.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
+
+library(ggplot2)
+library(gridExtra)
+library(plyr)
+options("scipen"=100)
+```
+
+```{r echo=FALSE, Load_the_Data}
+
+
+ca_sample <- read.csv("california_2012_election_contributions.csv")
+ca_sample$X <- NULL
+ca_sample <- rename(ca_sample, c("cmte_id"            = "committee.id",
+                                 "cand_id"            = "candidate.id",
+                                 "cand_nm"            = "candidate",
+                                 "contbr_nm"          = "name", 
+                                 "contbr_city"        = "city",
+                                 "contbr_st"          = "state",
+                                 "contbr_zip"         = "zip", 
+                                 "contbr_employer"    = "employer",
+                                 "contbr_occupation"  = "occupation", 
+                                 "contb_receipt_amt"  = "amount",
+                                 "contb_receipt_dt"   = "date",
+                                 "receipt_desc"       = "receipt.description",
+                                 "memo_cd"            = "memo.code",
+                                 "memo_text"          = "memo.text",
+                                 "form_tp"            = "form.type",
+                                 "file_num"           = "file.number",
+                                 "tran_id"            = "transaction.id", 
+                                 "election_tp"        = "election.type"))
+
+# Only donations to Obama and Romney, > 0
+ca_sample <- subset(ca_sample, amount > 0)
+ca_sample <- subset(ca_sample, candidate == "Obama, Barack" | candidate == "Romney, Mitt")
+
+# Set factor levels for ease of coloring, convert "date" strings to date type
+ca_sample$candidate <- factor(ca_sample$candidate,  
+                              levels =c("Obama, Barack", "Romney, Mitt"))
+ca_sample$date = as.Date(ca_sample$date, format = "%d-%b-%y")
+
+democrat <- subset(ca_sample, candidate == "Obama, Barack")
+republican <- subset(ca_sample, candidate == "Romney, Mitt")
+
+```
+
+```{r, echo=FALSE, Create_Helper_Variables}
+
+# New variables created to be used for aggregating sums on datasetwith the 
+# ddply function within the plyr package
+
+# E.g., if to Obama, set democrat donation to 1, democrat amount to amount
+# In this same row, republican to 0, republican amount to 0.  
+# Vice versa for Republican donations.
+ca_sample$democrat = ifelse(ca_sample$candidate == "Obama, Barack", 1, 0)
+ca_sample$democrat.amount = ca_sample$democrat * ca_sample$amount
+ca_sample$republican = ifelse(ca_sample$candidate == "Romney, Mitt", 1, 0)
+ca_sample$republican.amount = ca_sample$republican * ca_sample$amount
+ca_sample$all.donations = 1
+```
+
+
+
+First, I wanted to get a basic understanding of my dataset:    
+* How many observations am I working with?  
+* What types of data do I have and what are some basic summaries about this data?  
+```{r echo=FALSE, Data_Structure}
+dim(ca_sample)
+```
+
+```{r echo=FALSE}
+colnames(ca_sample)
+```
+
+```{r echo=FALSE}
+str(ca_sample)
+summary(ca_sample)
+
+```
+
+
+
+Based on this data summary alone, there is a lot of information about the dataset.   
+* Most donations go to Obama.   
+* Not surprisingly, the cities that send the most donations are the most populated cities.  
+* Many are retired or self-employed (more on this later).  
+* Of those employed by others, the most common occupation is attorney.  
+* The median amount of donation is $50 with a right skewed distribution.  
+* The median date is Oct 14th, 2012. Thus, 50% of all donations occur in the last month leading up to the election on Nov 6th, 2012.  
+
+Next, I wanted to see what are the most common values of my categorical variables. 
+
+### Histogram of Most Common Occurrences
+
+
+```{r, echo=FALSE, Top_Values_Function}
+
+# Create a function that graphs the top 10 most occuring values in a vector
+top_values = function(values, x_label = ""){
+  # Take the top 10 common occurences in a vector of values, store as df
+  top_ten <- sort(table(values), decreasing = TRUE)[1:10]
+  df.temp = as.data.frame(top_ten)
+  
+  # Set row.names as an accesible variable
+  df.temp$temp_x <- row.names(df.temp)
+  # Set the ordered vector as factor levels to show up ordered in histogram
+  df.temp <- within(df.temp, temp_x <- factor(temp_x,  levels =temp_x))
+  
+  ggplot(aes(x = temp_x, y = top_ten), data = df.temp) + 
+    geom_bar(stat = "identity") + xlab(eval(substitute(x_label))) + 
+    ylab("Count") +     theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+}
+  
+```
+
+
+```{r, echo=FALSE, Top_Values_amount_city_zip}
+top_values(ca_sample$amount, "Amounts") + 
+  ggtitle("Most Common Donation Amounts")
+top_values(ca_sample$city, "City") + ggtitle("Cities by # of Donations")
+top_values(ca_sample$zip, "Zipcodes") + ggtitle("Zipcodes by # of Donations")
+```
+
+Nothing too suprising here. Generally, the cities and zips with the most donations tend to be the ones with the most amount of people. 
+
+```{r, echo=FALSE, Top_Values_Raw_Occupation }
+top_values(ca_sample$occupation, "Occupation") + 
+  ggtitle("Most Common Occupations")
+```
+
+At first glance, this histogram seems strange. Do retired people really donate that much more often than everyone else? There is some credence to this, as older citizens tend to be the most politically active in terms of voting. However, this trend is better explained by the fact that retired people are probably not that different than other contributors, except for the fact that they are older and no longer work. In other words, ex-teachers and ex-attorneys are all lumped into one category, "retired". Thus, in reviewing the most commonly held occupations, it makes more sense to exclude retired people. Additionally, let's remove those who would not disclose their occupation. 
+
+
+```{r, echo=FALSE, Top_Values_Clean_Occupation }
+occupation <- ca_sample$occupation
+
+# Remove retired and unkown occupation donations
+known_status <- occupation[occupation != "INFORMATION REQUESTED" & 
+                      occupation != "INFORMATION REQUESTED PER BEST EFFORTS" ]
+working <- known_status[known_status != "RETIRED"]
+
+top_values(working, "Occupation") + 
+  ggtitle("Most Commons Occupations \n(excluding retired)")
+```
+
+Even from these results, it's still hard to draw any particular conclusions. We'd need data on the distribution of occupations in California to tell whether these particular occupations are more likely to contribute, or are just the most common amongst the population at large.
+
+```{r, echo= FALSE, Top_Values_Employer}
+# Remove unknown employers
+employer <- ca_sample$employer
+known_employer <- employer[employer != "INFORMATION REQUESTED" & 
+                          employer != "INFORMATION REQUESTED PER BEST EFFORTS" ]
+
+top_values(known_employer, "Employer") + ggtitle("Top 10 Employers of Donaters")
+```
+
+A few types of "employers" skew the distribution a bit. Let's remove non-organizational employers...
+
+```{r, echo=FALSE, Top_Values_Organizations}
+# Remove non-organizational employers
+self_and_retired <- c("RETIRED", "SELF-EMPLOYED", "NOT EMPLOYED", 
+                      "SELF", "NONE", "HOMEMAKER")
+org_workers <- known_employer[! known_employer %in% self_and_retired]
+
+top_values(org_workers, "Employer") + 
+  ggtitle("Most Common Organizational Employers")
+```
+
+The most common employers tend to be the largest employers within the state of California. Again, we'd need to know more information about employer distributions to know if it any particular employer over or underindexes on rate of contribution.
+
+### Analysis of Amount
+
+In analyzing amount, I wanted to know what the distributions looked like how they varied between parties.  
+
+```{r, echo=FALSE, All_Amounts_Analysis, warning=FALSE, message =FALSE}
+# Histograms of Amount
+qplot(ca_sample$amount)
+qplot(ca_sample$amount) +  xlim(0, 500)
+qplot(log(ca_sample$amount))
+
+
+# Function to easily create boxplot with a cutoff and chart title
+quantile_boxplot <- function(cutoff, title = ""){
+  ggplot(data= ca_sample, aes(x= state, y = amount)) + geom_boxplot() + 
+    coord_cartesian(ylim = c(0, quantile(ca_sample$amount, cutoff))) + 
+    ggtitle(eval(substitute(title)))  
+}
+
+# Boxplots of Amount. 
+quantile_boxplot(1, "All Donations")
+quantile_boxplot(0.9, "90% Cutoff")
+summary(ca_sample$amount)
+```
+
+Clearly, there are some large outliers in the values of amounts. Given that the initial histogram was right skewed, I first decided to take a log transformation to see whether it would then follow a normal distribution. It does look more normal, but not quite as perfectly as one might hope. 
+
+Next, I asked, is there a difference in distributions in donations by party? 
+
+
+```{r, echo=FALSE, Party_Amounts_Histogram, warning=FALSE, message =FALSE}
+
+# Base histogram of party amounts 
+amount_histogram <- ggplot(data = ca_sample, 
+                           aes(x = amount, fill = candidate)) + 
+  geom_bar() + scale_fill_manual(values= c("blue", "red")) +
+  facet_wrap(~ candidate) 
+
+amount_histogram
+amount_histogram + xlim(0, 500)
+
+# Histogram of log(amounts)
+ggplot(data = ca_sample, aes(x = log(amount), fill = candidate)) + geom_bar() +
+  facet_wrap(~ candidate) + scale_fill_manual(values= c("blue", "red"))
+```
+
+Based on these graphs alone, it's difficult to tell to precise details. Instead, I broke these out with boxplots and summary statistics. 
+
+### Summary of Amounts by Party
+
+```{r echo=FALSE}
+# Create base boxplot graph
+boxplot_amount_candidate <- 
+  ggplot(data= ca_sample, aes(x= candidate, y = amount)) + 
+  geom_boxplot(aes(fill = candidate)) +   
+  scale_fill_manual(values= c("blue", "red"))
+
+boxplot_amount_candidate
+
+boxplot_amount_candidate + 
+  coord_cartesian(ylim = c(0, quantile(ca_sample$amount, 0.95)))
+
+# 5 number summary of amounts, split by Candidate
+tapply(ca_sample$amount, ca_sample$candidate, summary)
+```
+
+After zooming in our graph, it becomes very clear that the distribution of amounts is noticeably different between donations to Obama vs. Romney. The stark differences can be seen exactly in the numerical summary above. This would explain why although Romney has far fewer total contributors, his total amount of money raised is not as comparably low. 
+
+
+```{r, echo=FALSE, Total_Donations_by_Candidate}
+ggplot(data = ca_sample, aes(x = candidate, fill = candidate))  + geom_bar() + 
+  scale_fill_manual(values= c("blue", "red")) +
+  ggtitle("Number of Donations by Candidate")
+```
+
+
+```{r echo=FALSE, Bivariate_Plots}
+ggplot(data = ca_sample, aes(x = candidate, fill = candidate)) + 
+  geom_bar(aes(weight = amount)) + scale_fill_manual(values= c("blue", "red")) +
+  ggtitle("Total Amount of Money Raised by Candidate")
+
+# Sum of total amounts, split by candidate
+tapply(ca_sample$amount, ca_sample$candidate, sum) 
+```
+
+
+### Profession Level Analysis
+
+```{r, echo=FALSE, Bivariate_Professions}
+library(plyr)
+
+# Aggregate profession level data in a similar manner as city level data
+profession = ddply(ca_sample, .(occupation), summarize, 
+                   total.money = sum(amount), 
+                   d.money = sum(democrat.amount),
+                   r.money = sum(republican.amount), 
+                   d.donations = sum(democrat),
+                   r.donations = sum(republican),
+                   total.donations = sum(all.donations))
+
+profession$percent.d.money = 100 * round(profession$d.money 
+                                         / profession$total.money, 4)
+profession$percent.r.money = 100 * round(profession$r.money 
+                                         / profession$total.money, 4)
+profession$percent.d.donations  = 100 * round(profession$d.donations 
+                                              / profession$total.donations, 4)
+profession$percent.r.donations  = 100 * round(profession$r.donations 
+                                              / profession$total.donations, 4)
+profession = subset(profession, total.donations > 20)
+
+sort_profession = function(df, xvar, df.name = "profession"){
+  df = df[with(df, order(- xvar)),]
+  df <- within(df, occupation <- factor(occupation,levels =occupation))
+  assign(eval(substitute(df.name)), df, envir = globalenv())
+}
+
+# Remove retired and unknown occupation donations
+profession = subset(profession, occupation != "RETIRED")
+profession = subset(profession, occupation != "INFORMATION REQUESTED") 
+profession = subset(profession, 
+                    occupation != "INFORMATION REQUESTED PER BEST EFFORTS")
+
+# Total Donations Histogram
+sort_profession(profession, profession$total.donations, "profession")
+profession.donations.10 = profession[1:10,]
+ggplot(data = profession.donations.10, 
+       aes(x = occupation, y = total.donations)) + geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Save most often donating profession in a vector
+topProfessions = profession.donations.10$occupation
+
+# Total Money Histogram
+sort_profession(profession, profession$total.money, "profession")
+profession.donations.10 = profession[1:10,]
+ggplot(data = profession.donations.10, aes(x = occupation, y = total.money)) + 
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Take a subset of only donations from top professions, draw boxplot
+topProfessions.donations <- subset(ca_sample, occupation %in% topProfessions)
+ggplot(data= topProfessions.donations, aes(x= occupation, y = amount)) + 
+  geom_boxplot() +  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggplot(data= topProfessions.donations, aes(x= occupation, y = amount)) + 
+  geom_boxplot() +  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_cartesian(ylim = c(0, quantile(topProfessions.donations$amount, 0.95)))
+  
+```
+
+There are a few noticeable trends in occupation data. First is that expected occupation income seems to related with amount donated. For example, physicians and attorneys tend to donate more per person than teachers. The exception to this would be homeakers, but this makes sense upon further consideration. If you're a homemaker, your spouse probably must make enough money to support the entire household. Thus, households with a homemaker may have higher incomes on average, and thus be able to donate money from both partners at higher amounts. 
+
+It is difficult to comment on the frequency of attorneys and physicians without outside data outlining their relative frequencies in the California population, but I'm willing to guess that they donate more often than average because specific political issues are likely to be very relevant to them given their field of work. 
+
+```{r, echo=FALSE, Multivariate_Analysis_by_Profession}
+# Republican Donations
+sort_profession(profession, profession$r.donations, "profession")
+profession.donations.10 = profession[1:10,]
+rdp <- ggplot(data = profession.donations.10, aes(x = occupation, 
+                                                  y = r.donations)) + 
+  geom_bar(stat = "identity", fill = "red") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ylim(0, 2000)
+
+# Democrat Donations
+sort_profession(profession, profession$d.donations, "profession")
+profession.donations.10 = profession[1:10,]
+ddp <- ggplot(data = profession.donations.10, aes(x = occupation, 
+                                                  y = d.donations)) + 
+  geom_bar(stat = "identity", fill = "blue") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+grid.arrange(ddp, rdp, ncol = 2)
+
+#Republican Money
+sort_profession(profession, profession$r.money, "profession")
+profession.donations.10 = profession[1:10,]
+rmp <- ggplot(data = profession.donations.10, aes(x = occupation, 
+                                                  y = r.money)) + 
+  geom_bar(stat = "identity", fill = "red") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Democrat Money
+sort_profession(profession, profession$d.money, "profession")
+profession.donations.10 = profession[1:10,]
+dmp <- ggplot(data = profession.donations.10, aes(x = occupation, 
+                                                  y = d.money)) + 
+  geom_bar(stat = "identity", fill = "blue") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+grid.arrange(dmp, rmp, ncol = 2)
+
+# Boxplot amount by occupation and candidate
+ggplot(data= topProfessions.donations, aes(x= occupation, 
+                                           y = amount, fill = candidate)) + 
+  geom_boxplot() + scale_fill_manual(values= c("#00CCFF", "red")) +
+  coord_cartesian(ylim = c(0, quantile(topProfessions.donations$amount, 0.90))) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+Once agian, we see that candidate has a strong relationship across the top occupations sampled. In these charts, we also see that professors tend to lean more towards donating to the democratic candidate, whereas occupations related to business functions (sales, manager, president, real estate, etc.) tend to lean toward donating to the republican canidate. 
+
+
+
+
+
+### City Level Analysis
+
+Given what we know about amounts across all of California, I looked to explore city-level data. 
+
+```{r, echo=FALSE, Summarize_cities}
+# Aggregate number of donations and total sums of money by city.
+# Include totals as well as split by candidate
+cities = ddply(ca_sample, .(city), summarize, total.money = sum(amount), 
+                       d.money = sum(democrat.amount),
+                       r.money = sum(republican.amount), 
+                       d.donations = sum(democrat),
+                       r.donations = sum(republican),
+                       total.donations = sum(all.donations))
+
+# Calculate percentages of party money & donations on a city level
+cities$percent.d.money = 100 * round(cities$d.money / cities$total.money, 4)
+cities$percent.r.money = 100 * round(cities$r.money / cities$total.money, 4)
+cities$percent.d.donations  = 
+  100 * round(cities$d.donations / cities$total.donations, 4)
+cities$percent.r.donations  = 
+  100 * round(cities$r.donations / cities$total.donations, 4)
+
+# Sort a df by a given vector, return the sorted df to the global environment
+sort_df = function(df, xvar, df.name = "temp.df"){
+  df = df[with(df, order(- xvar)),]
+  df <- within(df, city <- factor(city,levels =city))
+  #assign(eval(substitute(df.name)), df, envir = .GlobalEnv)
+  assign(eval(substitute(df.name)), df, envir = globalenv())
+}
+
+sort_cities = function(xvar){
+  cities = cities[with(cities, order(- xvar)),]
+  cities <- within(cities, city <- factor(city,levels =city))
+  assign("cities", cities, envir = globalenv())
+}
+
+sort_cities10 = function(xvar){
+  cities = cities[with(cities, order(- xvar)),]
+  cities <- within(cities, city <- factor(city,levels =city))
+  cities[1:10,]
+  #assign("cities", cities, envir = globalenv())
+}
+
+
+# Sort cities by total money, store top 10 in vector
+# Subset df for only donations from those top 10 cities. 
+
+sort_cities(cities$total.money)
+highest_money_cities = cities$city[1:10]
+
+#highest_money_cities = sort_cities10(cities$total.money)
+donations_from_top_cities <- subset(ca_sample, city %in% highest_money_cities)
+
+# Aggregate total money and donations by city, party
+cities_by_party = ddply(donations_from_top_cities, .(city, candidate), 
+                        summarize, money = sum(amount), 
+                        donations = sum(all.donations))
+
+# Set factors in order of city with highest sums of money
+cities_by_party <- within(cities_by_party, 
+                             city <- factor(city,levels =highest_money_cities))
+donations_from_top_cities <- within(donations_from_top_cities, 
+                             city <- factor(city,levels =highest_money_cities))
+
+# Plot histogram of total amounts for the top 10 cities 
+ggplot(data = donations_from_top_cities, aes(x = city)) + 
+  geom_bar(aes(weight = amount)) + scale_fill_manual(values= c("blue", "red")) +
+  ggtitle("Total Amount of Money Raised by City") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Histogram of total money by city, bars stacked and colored by candidate
+ggplot(data = donations_from_top_cities, aes(x = city, fill = candidate)) + 
+  geom_bar(aes(weight = amount)) + scale_fill_manual(values= c("blue", "red")) +
+  ggtitle("Cities Contributing the Most Money\n Fill by Candidate") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Some of this chart is as expected. The largest cities like Los Angeles and San Francisco donate the most money just through their sheer population size. But some smaller cities also make this list. Let's separate out the effects of population by looking at boxplots of the amounts by cities...
+
+
+```{r echo=FALSE}
+# Boxplots of Amount by City
+ggplot(data= donations_from_top_cities, aes(x= city, y = amount)) + 
+  geom_boxplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggplot(data= donations_from_top_cities, aes(x= city, y = amount)) + 
+  geom_boxplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_cartesian(ylim = c(0, quantile(donations_from_top_cities$amount, 0.95)))
+
+ggplot(data= donations_from_top_cities, aes(x= city, y = amount)) +  
+  geom_boxplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_cartesian(ylim = c(0, quantile(donations_from_top_cities$amount, 0.9)))
+   
+```
+
+Clearly, some cities (like Newport Beach) donate at a rate far above those of other cities, hence why it makes the list despite only having a population of rouhly 85,000 (as  opposed to Sacramento, population of approximately 480,000). 
+
+Next, I asked: What are the most partisan cities in terms of dollars donated and number of donations? 
+```{r echo=FALSE, Multivariate_Plots}
+
+
+# Sort cities df by r.donations, subset the top 10 cities
+sort_cities(cities$r.donations)
+r.donations = cities[1:10,]
+
+# Histogram of top Cities by # of Republican Donations"
+rd <- ggplot(data = r.donations, aes(x = city, y = r.donations)) + 
+  geom_bar(stat = "identity", fill = 'red') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ggtitle("Top Cities by # of \nRepublican Donations")
+
+# Note that the same process is repeated below, just for democrats.
+# The process is then repeated further for % money by party. 
+# See ggtitle" " for histogram descriptions
+
+sort_cities(cities$d.donations)
+d.donations = cities[1:10,]
+
+dd <- ggplot(data = d.donations, aes(x = city, y = d.donations)) + 
+  geom_bar(stat = "identity", fill = 'blue') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Top Cities by # of \nDemocrat Donations")
+
+# Plot above democrat + republican histograms together
+grid.arrange(dd, rd, ncol = 2)
+
+sort_cities(cities$r.money)
+r.total.money = cities[1:10,]
+
+rm <- ggplot(data = r.total.money, aes(x = city, y = r.money)) + 
+  geom_bar(stat = "identity", fill = 'red') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Top Cities by Total $ \n of Republican Donations")
+
+sort_cities(cities$d.money)
+d.total.money = cities[1:10,]
+
+dm <- ggplot(data = d.total.money, aes(x = city, y = d.money)) + 
+  geom_bar(stat = "identity", fill = 'blue') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Top Cities by Total $ \n of Democratic Donations")
+
+grid.arrange(dm, rm, ncol = 2)
+
+
+```
+
+```{r, echo=FALSE, boxplot_city_candidate}
+# Box plot of amounts by city fill by candidate
+ggplot(data= donations_from_top_cities, aes(x= city, 
+                                            y = amount, fill = candidate)) + 
+  geom_boxplot() + scale_fill_manual(values= c("#00CCFF", "red")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggplot(data= donations_from_top_cities, aes(x= city, 
+                                            y = amount, fill = candidate)) + 
+  geom_boxplot() + scale_fill_manual(values= c("#00CCFF", "red")) +
+  coord_cartesian(ylim = c(0, quantile(
+    donations_from_top_cities$amount, 0.95))) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ggplot(data= donations_from_top_cities, aes(x= city, 
+                                            y = amount, fill = candidate)) + 
+  geom_boxplot() + scale_fill_manual(values= c("#00CCFF", "red")) +
+  coord_cartesian(ylim = c(0, quantile(
+    donations_from_top_cities$amount, 0.90))) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+```
+
+Clearly, city and candidate can have a strong relationship to amount. 
+
+Finally, I wanted to look at: what are the most partisan cities by percentage of contributions and by percentage of total money contributed? 
+
+```{r, echo=FALSE, Most_Partisan_Cities}
+# Take subset of cities that have at least 50 donations
+# to ensure a robust analysis
+sort_df = function(df, xvar, df.name = "temp.df"){
+  df = df[with(df, order(- xvar)),]
+  df <- within(df, city <- factor(city,levels =city))
+  #assign(eval(substitute(df.name)), df, envir = .GlobalEnv)
+  assign(eval(substitute(df.name)), df, envir = globalenv())
+}
+
+bigger_cities = subset(cities, total.donations > 50)
+
+# See section "multivariate plots" for comments on this process
+
+sort_df(bigger_cities, bigger_cities$percent.r.donations, "bigger_cities")
+percent.r.donations = bigger_cities[1:10,]
+  
+rpd <- ggplot(data = percent.r.donations, aes(x = city, 
+                                              y = percent.r.donations)) + 
+  geom_bar(stat = "identity", fill = 'red') + ylim(0, 100) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Top Cities by % of \n Donations to Republican")
+
+sort_df(bigger_cities, bigger_cities$percent.d.donations, "bigger_cities")
+percent.d.donations = bigger_cities[1:10,]
+
+dpd <- ggplot(data = percent.d.donations, aes(x = city, 
+                                              y = percent.d.donations)) + 
+  geom_bar(stat = "identity", fill = 'blue') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Top Cities by % of \n Donations to Democrat")
+
+
+grid.arrange(dpd, rpd, ncol = 2)
+
+sort_df(bigger_cities, bigger_cities$percent.r.money, "bigger_cities")
+percent.r.money = bigger_cities[1:10,]
+
+rpm <- ggplot(data = percent.r.money, aes(x = city, y = percent.r.money)) + 
+  geom_bar(stat = "identity", fill = 'red') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ylim(0,100) +
+  ggtitle("Top Cities by % of \n $ Donations to Republican")
+
+sort_df(bigger_cities, bigger_cities$percent.d.money, "bigger_cities")
+percent.d.money = bigger_cities[1:10,]
+
+dpm <- ggplot(data = percent.d.money, aes(x = city, y = percent.d.money)) + 
+  geom_bar(stat = "identity", fill = 'blue') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Top Cities by % of \n $ Donations to Democrat")
+
+grid.arrange(dpm, rpm, ncol = 2)
+```
+
+Note that for the analysis on cities above, a mimimum threshold was set at 50 donations for a city to be included in partisan city analysis. 
+
+Based on city data, it's clear that Republicans do best in small, affluent communities in Southern California. Democrats do best in Berkeley and small cities nearby in the Bay Area. A notable exception to this trend is Hollywood, a Democrat stronghold. 

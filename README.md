@@ -1,7 +1,7 @@
 # An Exploratory Data Analysis of California Donors to the 2012 Presidential Election
 
 ## Executive Summary
-Data from the FEC on political contributions from California residents to 2012 presidential candidates was analyzed and visualized. The output of my analysis is (viewable here)[https://dl.dropboxusercontent.com/u/17610966/EDA_of_CA_2012_Election_Donations.html], and the code used to produce it is in the R Markdown file. 
+Data from the FEC on political contributions from California residents to 2012 presidential candidates was analyzed and visualized. The output of my analysis is [viewable here](https://dl.dropboxusercontent.com/u/17610966/EDA_of_CA_2012_Election_Donations.html), and the code used to produce it is in the R Markdown file. 
 
 **Memo for Republicans**  
 Results of Analysis
